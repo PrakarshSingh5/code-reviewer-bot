@@ -9,11 +9,6 @@ const DEFAULTS: RepoConfig = {
   max_comments: 10,
 };
 
-/**
- * Attempt to load reviewbot.yml from the repo root at the PR's commit SHA.
- * Falls back to defaults if the file doesn't exist or is malformed.
- * Implements CF-01.
- */
 export async function loadRepoConfig(
   octokit: Octokit,
   context: PullRequestContext,
@@ -28,7 +23,6 @@ export async function loadRepoConfig(
       ref: commitSha,
     });
 
-    // data is a union type; narrow to file content
     if (!('content' in data)) throw new Error('reviewbot.yml is not a file');
 
     const raw = Buffer.from(data.content as string, 'base64').toString('utf8');
@@ -37,9 +31,7 @@ export async function loadRepoConfig(
     const config: RepoConfig = {
       ...DEFAULTS,
       ...parsed,
-      // Clamp max_comments to [1, 50]
       max_comments: Math.min(Math.max(Number(parsed.max_comments ?? DEFAULTS.max_comments), 1), 50),
-      // Validate severity falls back to default if unknown
       min_severity: isValidSeverity(parsed.min_severity)
         ? parsed.min_severity
         : DEFAULTS.min_severity,

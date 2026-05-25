@@ -1,7 +1,7 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { PRFile, ReviewComment, RepoConfig, Severity } from '../types';
 
-const MODEL = 'claude-sonnet-4-20250514'; // LM-01
+const MODEL = 'gemini-2.5-flash'; // LM-01
 const MAX_TOKENS_PER_CHUNK = 8000; // LM-05: chunk threshold
 const MAX_RETRIES = 1; // LM-06: retry once on invalid JSON
 
@@ -19,12 +19,12 @@ Be specific and actionable. Skip formatting/style nitpicks unless asked.
 If no issues found, return an empty array: []
 Return ONLY the JSON array. No preamble, no markdown fences.`;
 
-let _client: Anthropic | null = null;
+let _client: GoogleGenerativeAI | null = null;
 
-function getClient(): Anthropic {
+function getClient(): GoogleGenerativeAI {
   if (_client) return _client;
-  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY is not set');
-  _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set');
+  _client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   return _client;
 }
 
@@ -36,25 +36,31 @@ function buildUserMessage(files: PRFile[]): string {
 }
 
 /**
- * Call Claude and parse JSON response. Retries once on invalid JSON (LM-06).
+ * Call Gemini and parse JSON response. Retries once on invalid JSON (LM-06).
  */
 async function callLLM(userMessage: string, attempt = 0): Promise<ReviewComment[]> {
-  const client = getClient();
-
-  const response = await client.messages.create({
+  const genAI = getClient();
+  const model = genAI.getGenerativeModel({
     model: MODEL,
-    max_tokens: 2048,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userMessage }],
+    systemInstruction: SYSTEM_PROMPT,
   });
 
-  const text =
-    response.content[0]?.type === 'text' ? (response.content[0].text ?? '').trim() : '';
+  const result = await model.generateContent(userMessage);
+  const text = result.response.text().trim()
+    // Strip markdown fences if Gemini wraps in ```json ... ```
+    .replace(/^```(?:json)?\n?/, '')
+    .replace(/\n?```$/, '');
 
   try {
     const parsed: unknown = JSON.parse(text);
-    if (!Array.isArray(parsed)) throw new Error('LLM response is not an array');
-    return parsed as ReviewComment[];
+    // Handle both plain array and object-wrapped { issues: [...] }
+    const arr = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray((parsed as Record<string, unknown>)?.issues)
+        ? (parsed as Record<string, unknown>).issues
+        : null;
+    if (!arr) throw new Error('LLM response is not an array');
+    return arr as ReviewComment[];
   } catch {
     if (attempt < MAX_RETRIES) {
       console.warn(`[LLM] Invalid JSON (attempt ${attempt + 1}) — retrying`);
@@ -113,7 +119,7 @@ export async function analyzeFiles(
   config: Partial<RepoConfig>,
 ): Promise<ReviewComment[]> {
   const chunks = chunkFiles(files);
-  console.log(`[LLM] Sending ${chunks.length} chunk(s) to Claude`);
+  console.log(`[LLM] Sending ${chunks.length} chunk(s) to Gemini`);
 
   const allComments: ReviewComment[] = [];
 

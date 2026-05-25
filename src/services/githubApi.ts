@@ -3,19 +3,14 @@ import micromatch from 'micromatch';
 import path from 'path';
 import { PullRequestContext, PRFile, RepoConfig } from '../types';
 
-// Binary/non-reviewable extensions to skip (GH-06)
 const BINARY_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp',
   '.pdf', '.zip', '.tar', '.gz', '.exe', '.bin', '.wasm',
   '.ttf', '.woff', '.woff2', '.eot', '.mp4', '.mp3', '.mov',
 ]);
 
-const MAX_FILES_PER_PR = 20; // Cap at 20 when > 50 files changed (Section 8)
+const MAX_FILES_PER_PR = 20;
 
-/**
- * Fetch and filter changed files for a PR.
- * Implements GH-03, GH-06, GH-07, and CF-02.
- */
 export async function fetchPRFiles(
   octokit: Octokit,
   context: PullRequestContext,
@@ -39,17 +34,13 @@ export async function fetchPRFiles(
   const filtered: PRFile[] = files
     .slice(0, MAX_FILES_PER_PR)
     .filter((file) => {
-      // GH-07: Skip deleted files
       if (file.status === 'removed') return false;
 
-      // GH-06: Skip binary files by extension
       const ext = path.extname(file.filename).toLowerCase();
       if (BINARY_EXTENSIONS.has(ext)) return false;
 
-      // CF-02: Skip files matching skip_files globs from reviewbot.yml
       if (skipPatterns.length && micromatch.isMatch(file.filename, skipPatterns)) return false;
 
-      // Skip files without a diff patch (e.g. pure renames)
       if (!file.patch) return false;
 
       return true;

@@ -7,25 +7,29 @@ import { PullRequestContext } from '../types';
 
 const SUPPORTED_ACTIONS = new Set(['opened', 'synchronize', 'reopened']);
 
-/**
- * Handle pull_request events (WH-03).
- */
 export async function handlePullRequest(payload: Record<string, unknown>): Promise<void> {
   const action = payload['action'] as string;
   const pr = payload['pull_request'] as Record<string, unknown>;
   const repo = payload['repository'] as Record<string, unknown>;
-  const installation = payload['installation'] as Record<string, unknown>;
+  const installation = payload['installation'] as Record<string, unknown> | undefined;
   const repoOwner = repo['owner'] as Record<string, unknown>;
   const prUser = pr['user'] as Record<string, unknown>;
   const prHead = pr['head'] as Record<string, unknown>;
 
-  // Only process relevant actions (WH-03)
   if (!SUPPORTED_ACTIONS.has(action)) {
     console.log(`[EventHandler] Skipping PR action: ${action}`);
     return;
   }
 
-  // WH-05: Ignore bots to prevent review loops
+  if (!installation?.['id']) {
+    console.error(
+      '[EventHandler] ❌ No installation ID in payload. ' +
+      'This webhook was fired from a direct repo webhook, not a GitHub App. ' +
+      'Please install your GitHub App on this repo and use the App webhook URL.',
+    );
+    return;
+  }
+
   if (prUser?.['type'] === 'Bot') {
     console.log('[EventHandler] PR opened by a Bot — skipping to avoid loops');
     return;
@@ -46,11 +50,9 @@ export async function handlePullRequest(payload: Record<string, unknown>): Promi
   const octokit = await getInstallationOctokit(context.installationId);
 
   try {
-    // 1. Load repo-level config (CF-01)
     const config = await loadRepoConfig(octokit, context);
     console.log('[EventHandler] Config loaded:', JSON.stringify(config));
 
-    // 2. Fetch changed files (GH-03)
     const files = await fetchPRFiles(octokit, context, config);
     console.log(`[EventHandler] Fetched ${files.length} reviewable file(s)`);
 
@@ -59,11 +61,9 @@ export async function handlePullRequest(payload: Record<string, unknown>): Promi
       return;
     }
 
-    // 3. Analyze with LLM (LM-01 → LM-06)
     const comments = await analyzeFiles(files, config);
     console.log(`[EventHandler] LLM returned ${comments.length} comment(s)`);
 
-    // 4. Post review to GitHub (GH-04)
     await postReview(octokit, context, comments, config);
     console.log(`[EventHandler] Review posted for PR #${context.pullNumber}`);
   } catch (err) {
@@ -76,9 +76,6 @@ export async function handlePullRequest(payload: Record<string, unknown>): Promi
   }
 }
 
-/**
- * Handle installation events (WH-04).
- */
 export async function handleInstallation(payload: Record<string, unknown>): Promise<void> {
   if (payload['action'] === 'created') {
     const installation = payload['installation'] as Record<string, unknown>;
@@ -90,7 +87,5 @@ export async function handleInstallation(payload: Record<string, unknown>): Prom
       const repoNames = repositories.map((r) => r['full_name']).join(', ');
       console.log(`[EventHandler] Installed on repos: ${repoNames}`);
     }
-
-    // Future: persist installation ID to a database
   }
 }
