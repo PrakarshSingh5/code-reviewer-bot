@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Environment secrets — NEVER commit
+.env
+
+# Logs
+*.log
+logs/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Build / coverage
+coverage/
+dist/

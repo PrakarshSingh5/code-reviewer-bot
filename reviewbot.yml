@@ -1,0 +1,17 @@
+# reviewbot.yml — place in the root of any repo where the app is installed
+enabled: true
+
+# Glob patterns for files to skip entirely (never sent to LLM)
+skip_files:
+  - "**/*.lock"
+  - "**/dist/**"
+  - "**/*.min.js"
+  - "**/node_modules/**"
+  - "**/*.generated.*"
+
+# Minimum severity to post as a comment
+# Options: bug | security | suggestion | nitpick
+min_severity: suggestion
+
+# Maximum inline comments per PR (to avoid spam)
+max_comments: 10
